@@ -1,0 +1,5 @@
+package tb
+
+trait Transaction {
+
+}
