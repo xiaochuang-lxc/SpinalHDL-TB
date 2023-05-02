@@ -5,6 +5,7 @@ import spinal.core.sim.fork
 import spinal.lib.Stream
 import spinal.lib.bus.amba4.axi.{Axi4Aw, Axi4B, Axi4W}
 import spinal.lib.tools.BigIntToListBoolean
+import spinal.sim.SimThread
 import tb.Utils.BigInt2ByteArray
 import tb.memory.Region
 
@@ -17,6 +18,7 @@ case class Axi4WriteOnlySlave(aw: Stream[Axi4Aw], w: Stream[Axi4W], b: Stream[Ax
   val bSource = Axi4BSource(b, clockDomain, maxPkgPending)
   val writeDataBuffer = ArrayBuffer[Byte]()
   val writeStrbBuffer = ArrayBuffer[Boolean]()
+  var writeProcThrd: SimThread = null
 
   def init() = {
     awSink.init()
@@ -29,7 +31,16 @@ case class Axi4WriteOnlySlave(aw: Stream[Axi4Aw], w: Stream[Axi4W], b: Stream[Ax
     awSink.start()
     wSink.start()
     bSource.start()
-    fork(writeProcess)
+    writeProcThrd = fork(writeProcess)
+  }
+
+  def stop() = {
+    writeProcThrd.terminate()
+    awSink.stop()
+    wSink.stop()
+    bSource.stop()
+    writeDataBuffer.clear()
+    writeDataBuffer.clear()
   }
 
   def setFlowPercent(awFlowPercent: Int, wflowPercent: Int, bflowPercent: Int) = {

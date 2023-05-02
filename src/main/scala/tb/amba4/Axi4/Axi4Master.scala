@@ -19,6 +19,11 @@ case class Axi4Master(axi4: Axi4, clockDomain: ClockDomain, maxPkgPending: Int =
     axi4ReadDrv.start()
   }
 
+  def stop() = {
+    axi4WriteDrv.stop()
+    axi4ReadDrv.stop()
+  }
+
   def idle = axi4WriteDrv.idle && axi4ReadDrv.idle
 
   def setFlowPercent(awFlowPercent: Int, wflowPercent: Int, bflowPercent: Int, arFlowPercent: Int, rFowPercent: Int) = {

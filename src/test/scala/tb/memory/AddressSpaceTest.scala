@@ -23,9 +23,9 @@ class AddressSpaceTest extends FunSuite {
     //dwrods read and write
     val writeDwords = Array(4, 5, 6, 7, 8).map(BigInt(_))
     addressSpaceInst.writeDwords(0x100, writeDwords)
-    val readDwords = addressSpaceInst.readDords(0x100, writeDwords.length)
+    val readDwords = addressSpaceInst.readDwords(0x100, writeDwords.length)
     assert(writeDwords.toBuffer == readDwords.toBuffer, s"writeBytes:$writeDwords\nreadBytes:$readDwords")
-    val readDwords1 = memoryRegionInst.readDords(0xf0, writeBytes.length)
+    val readDwords1 = memoryRegionInst.readDwords(0xf0, writeBytes.length)
     assert(writeDwords.toBuffer == readDwords1.toBuffer, s"writeBytes:$writeDwords\nreadBytes:$readDwords1")
   }
 

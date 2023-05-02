@@ -12,8 +12,8 @@ abstract class Monitor(callback: (Transaction) => Unit, event: Event = null) {
   val recvQ = Queue[Transaction]()
   var monitorThread: SimThread = null
   var transactionCount: Long = 0
-  if (callback != null)
-    callbackArray += callback
+  //if (callback != null)
+  //  callbackArray += callback
 
   /**
    * Sub-classes should override this method to implement the actual receive

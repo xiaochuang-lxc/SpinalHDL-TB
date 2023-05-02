@@ -4,6 +4,7 @@ import spinal.core.sim.fork
 import spinal.core.{ClockDomain, log2Up}
 import spinal.lib.Stream
 import spinal.lib.bus.amba4.axilite.{AxiLite4Ax, AxiLite4R}
+import spinal.sim.SimThread
 import tb.Utils.ByteArray2BigInt
 import tb.memory.Region
 
@@ -12,6 +13,7 @@ case class AxiLite4ReadOnlySlave(ar: Stream[AxiLite4Ax], r: Stream[AxiLite4R], c
   val addressAlignMask = (BigInt(1) << log2Up(config.bytePerWord)) - 1
   val arMon = AxiLite4AxSink(ar, clockDomain, queueOccupancyLimit)
   val rDrv = AxiLite4RSource(r, clockDomain, queueOccupancyLimit)
+  var readProcThrd: SimThread = null
 
   def init() = {
     arMon.init()
@@ -21,7 +23,13 @@ case class AxiLite4ReadOnlySlave(ar: Stream[AxiLite4Ax], r: Stream[AxiLite4R], c
   def start() = {
     arMon.start()
     rDrv.start()
-    fork(readProcess())
+    readProcThrd = fork(readProcess())
+  }
+
+  def stop() = {
+    if (readProcThrd != null) readProcThrd.terminate()
+    arMon.stop()
+    rDrv.stop()
   }
 
   def idel = arMon.idle && rDrv.idle

@@ -2,13 +2,13 @@ package tb.driver
 
 import spinal.core._
 import spinal.core.sim._
-import spinal.lib._
+import spinal.lib.Flow
 import spinal.sim.SimThread
 import tb.{Event, Transaction}
 
 import scala.collection.mutable.Queue
 
-abstract class StreamSource[T <: Data](bus: Stream[T], clockDomain: ClockDomain, queueOccupancyLimit: Int = 8) extends BusDriver(bus, clockDomain) {
+abstract class FlowSource[T <: Data](bus: Flow[T], clockDomain: ClockDomain, queueOccupancyLimit: Int = 8) extends BusDriver(bus, clockDomain) {
   val transactionQueue = Queue[Transaction]()
   val active = Event()
   var driveThread: SimThread = null
@@ -22,7 +22,6 @@ abstract class StreamSource[T <: Data](bus: Stream[T], clockDomain: ClockDomain,
   }
 
   def stop() = {
-    bus.valid #= false
     if (driveThread != null)
       driveThread.terminate()
   }
@@ -45,7 +44,7 @@ abstract class StreamSource[T <: Data](bus: Stream[T], clockDomain: ClockDomain,
           active.set()
           bus.valid #= true
           drive(transactionQueue.dequeue())
-          clockDomain.waitSamplingWhere(bus.ready.toBoolean)
+          clockDomain.waitSampling()
         } else {
           bus.valid #= false
           active.clear()
@@ -54,4 +53,5 @@ abstract class StreamSource[T <: Data](bus: Stream[T], clockDomain: ClockDomain,
       }
     }
   }
+
 }

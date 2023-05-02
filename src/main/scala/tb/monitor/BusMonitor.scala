@@ -7,4 +7,9 @@ abstract class BusMonitor[T <: Data](bus: T, clockDomain: ClockDomain, callback:
   val log = new SimLog(bus.getDisplayName())
 
   def init(): Unit
+
+  def stop() = {
+    if (monitorThread != null)
+      monitorThread.terminate()
+  }
 }

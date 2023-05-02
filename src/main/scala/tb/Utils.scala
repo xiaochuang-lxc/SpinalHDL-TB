@@ -1,8 +1,8 @@
 package tb
 
 import spinal.core.sim._
-import spinal.lib._
-import spinal.sim.SimThread
+import spinal.core.{ClockDomain, Endianness, LITTLE}
+import spinal.sim.{SimError, SimThread}
 
 object Utils {
   /**
@@ -43,5 +43,26 @@ object Utils {
     var result: BigInt = 0
     booleanList.zipWithIndex.filter(_._1).foreach(kv => result = result | (BigInt(1) << kv._2))
     result
+  }
+
+  /**
+   * Exec Simulation "Body" with timeout
+   *
+   * @param clockdomain target clockdomain
+   * @param cycles      timeout cycles
+   * @param body        Simulation body
+   */
+  def simWithTimeout(clockdomain: ClockDomain, cycles: Int)(body: => Unit): Unit = {
+    val startTime = simTime()
+    val simThread = fork(body)
+    val timeThread = fork {
+      clockdomain.waitSampling(cycles)
+    }
+    val threadFinished = JoinAny(simThread, timeThread)
+    if (threadFinished != simThread) {
+      simThread.terminate()
+      SimError(s"Simulation Timeout: Start Time:$startTime\t End Time:${simTime()}")
+    } else
+      timeThread.terminate()
   }
 }

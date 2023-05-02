@@ -70,6 +70,8 @@ case class Axi4Test() extends FunSuite {
         assert(readDataBack.toBuffer == writeData.toBuffer, s"readDataBack and writeData Mismatch")
         assert(readData.toBuffer == writeData.toBuffer, s"readDataBack and writeData Mismatch")
       }
+      axi4SlaveDrv.stop()
+      axi4MasterDrv.stop()
     }
   }
 
@@ -97,6 +99,8 @@ case class Axi4Test() extends FunSuite {
         assert(readDataBack.toBuffer == writeData.toBuffer, s"readDataBack and writeData Mismatch")
         assert(readData.toBuffer == writeData.toBuffer, s"readDataBack and writeData Mismatch")
       }
+      axi4SlaveDrv.stop()
+      axi4MasterDrv.stop()
     }
   }
 
@@ -124,6 +128,8 @@ case class Axi4Test() extends FunSuite {
       log.info(s"read date done")
       val readData = readDataEvent.map(_.getData[Array[Byte]]())
       (writeData, readData).zipped.foreach((wdata, rdata) => assert(wdata.toBuffer == rdata.toBuffer))
+      axi4SlaveDrv.stop()
+      axi4MasterDrv.stop()
     }
   }
 }

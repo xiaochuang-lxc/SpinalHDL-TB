@@ -4,6 +4,7 @@ import spinal.core.ClockDomain
 import spinal.core.sim._
 import spinal.lib.Stream
 import spinal.lib.bus.amba4.axilite.{AxiLite4Ax, AxiLite4B, AxiLite4W}
+import spinal.sim.SimThread
 import tb.memory.Region
 
 case class AxiLite4WriteOnlySlave(aw: Stream[AxiLite4Ax], w: Stream[AxiLite4W], b: Stream[AxiLite4B], target: Region, clockDomain: ClockDomain, queueOccupancyLimit: Int = 8) {
@@ -11,6 +12,7 @@ case class AxiLite4WriteOnlySlave(aw: Stream[AxiLite4Ax], w: Stream[AxiLite4W], 
   val awMon = AxiLite4AxSink(aw, clockDomain, queueOccupancyLimit)
   val wMon = AxiLite4WSink(w, clockDomain, queueOccupancyLimit)
   val bDrv = AxiLite4BSource(b, clockDomain, queueOccupancyLimit)
+  var writeProcThrd: SimThread = null
 
   def init() = {
     awMon.init()
@@ -22,8 +24,17 @@ case class AxiLite4WriteOnlySlave(aw: Stream[AxiLite4Ax], w: Stream[AxiLite4W], 
     awMon.start()
     wMon.start()
     bDrv.start()
-    fork(writeProcess())
+    writeProcThrd = fork(writeProcess())
   }
+
+  def stop() = {
+    if (writeProcThrd != null)
+      writeProcThrd.terminate()
+    awMon.stop()
+    wMon.stop()
+    bDrv.stop()
+  }
+
 
   def idle = awMon.idle && wMon.idle && bDrv.idle
 

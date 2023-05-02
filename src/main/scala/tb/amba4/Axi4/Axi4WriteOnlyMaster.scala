@@ -4,6 +4,7 @@ import spinal.core.sim.{fork, simFailure, waitUntil}
 import spinal.core.{ClockDomain, log2Up}
 import spinal.lib.Stream
 import spinal.lib.bus.amba4.axi.{Axi4Aw, Axi4B, Axi4Config, Axi4W}
+import spinal.sim.SimThread
 import tb.Utils.{BooleanList2BigInt, ByteArray2BigInt}
 import tb.memory.Region
 import tb.{Event, Transaction}
@@ -32,9 +33,9 @@ case class Axi4WriteCmd(addr: BigInt, data: Array[Byte], event: Event, config: A
     val addr4KAlignOffset = addr.toInt & (4096 - 1)
     val maxCyclePerCmd = 4096 / config.bytePerWord
     val cycles = (addrAlignOffset + data.length + config.bytePerWord - 1) / config.bytePerWord
-    val lastCyclByte = (data.length + addrAlignOffset) & (config.bytePerWord - 1)
-    val dataTmp = Array.fill(addrAlignOffset)(0.toByte) ++ data ++ Array.fill(config.bytePerWord - lastCyclByte)(0.toByte)
-    val strbTmp = Array.fill(addrAlignOffset)(false) ++ Array.fill(data.length)(true) ++ Array.fill(config.bytePerWord - lastCyclByte)(false)
+    val unAlignedByteNum = (data.length + addrAlignOffset) & (config.bytePerWord - 1)
+    val dataTmp = Array.fill(addrAlignOffset)(0.toByte) ++ data ++ Array.fill((config.bytePerWord - unAlignedByteNum) & (config.bytePerWord - 1))(0.toByte)
+    val strbTmp = Array.fill(addrAlignOffset)(false) ++ Array.fill(data.length)(true) ++ Array.fill((config.bytePerWord - unAlignedByteNum) & (config.bytePerWord - 1))(false)
     val cmdNum = (addr4KAlignOffset / config.bytePerWord + cycles + maxCyclePerCmd - 1) / maxCyclePerCmd
     val firstCmdDataCycleMax = (4096 - addr4KAlignOffset + config.bytePerWord - 1) / config.bytePerWord
 
@@ -81,6 +82,7 @@ case class Axi4WriteOnlyMaster(aw: Stream[Axi4Aw], w: Stream[Axi4W], b: Stream[A
   val bSink = Axi4BSink(b, clockDomain, maxPkgPending)
   val respCmdQueuArray = Array.fill(if (config.idWidth > 0) 1 << config.idWidth else 1)(Queue[Axi4WriteRespCmd]())
   val writeCmdQueue = Queue[Axi4WriteCmd]()
+  var writeProcThrd: SimThread = null
 
   def init() = {
     awSource.init()
@@ -93,7 +95,16 @@ case class Axi4WriteOnlyMaster(aw: Stream[Axi4Aw], w: Stream[Axi4W], b: Stream[A
     awSource.start()
     wSource.start()
     bSink.start()
-    fork(writeProcess)
+    writeProcThrd = fork(writeProcess)
+  }
+
+  def stop() = {
+    writeProcThrd.terminate()
+    awSource.stop()
+    wSource.stop()
+    bSink.stop()
+    respCmdQueuArray.foreach(_.clear())
+    writeCmdQueue.clear()
   }
 
   private def writeProcess() = {

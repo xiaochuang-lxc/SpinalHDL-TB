@@ -4,8 +4,7 @@ version := "0.1"
 
 scalaVersion := "2.11.12"
 
-scalaVersion := "2.11.12"
-val spinalVersion = "1.7.0"
+val spinalVersion = "1.8.0b"
 
 libraryDependencies ++= Seq(
   "com.github.spinalhdl" % "spinalhdl-core_2.11" % spinalVersion,

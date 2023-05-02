@@ -4,6 +4,7 @@ import spinal.core._
 import spinal.core.sim._
 import spinal.lib.Stream
 import spinal.lib.bus.amba4.axi.{Axi4Ar, Axi4R}
+import spinal.sim.SimThread
 import tb.Utils.ByteArray2BigInt
 import tb.memory.Region
 
@@ -11,6 +12,7 @@ case class Axi4ReadOnlySlave(ar: Stream[Axi4Ar], r: Stream[Axi4R], clockDomain: 
   val config = ar.config
   val arSink = Axi4AxSink(ar, clockDomain, maxPkgPending)
   val rSource = Axi4RSource(r, clockDomain, 4096 / config.bytePerWord * maxPkgPending)
+  var readProcThrd: SimThread = null
 
   def init() = {
     arSink.init()
@@ -21,7 +23,13 @@ case class Axi4ReadOnlySlave(ar: Stream[Axi4Ar], r: Stream[Axi4R], clockDomain: 
   def start() = {
     arSink.start()
     rSource.start()
-    fork(readProcess)
+    readProcThrd = fork(readProcess)
+  }
+
+  def stop() = {
+    readProcThrd.terminate()
+    arSink.stop()
+    rSource.stop()
   }
 
   def idle = arSink.idle && rSource.idle

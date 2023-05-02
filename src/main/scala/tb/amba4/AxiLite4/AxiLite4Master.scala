@@ -19,6 +19,11 @@ case class AxiLite4Master(bus: AxiLite4, clockDomain: ClockDomain, queueOccupanc
     readDrv.start()
   }
 
+  def stop() = {
+    writeDrv.stop()
+    readDrv.stop()
+  }
+
   def idle = writeDrv.idle && readDrv.idle
 
   override def writePrivate(address: BigInt, data: Array[Byte], kwargs: Map[String, BigInt]): Unit = {

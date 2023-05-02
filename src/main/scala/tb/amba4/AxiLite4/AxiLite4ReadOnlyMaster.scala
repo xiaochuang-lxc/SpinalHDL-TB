@@ -4,6 +4,7 @@ import spinal.core._
 import spinal.core.sim._
 import spinal.lib._
 import spinal.lib.bus.amba4.axilite._
+import spinal.sim.SimThread
 import tb.Utils.BigInt2ByteArray
 import tb.memory._
 import tb.{Event, Transaction}
@@ -37,6 +38,7 @@ case class AxiLite4ReadOnlyMaster(ar: Stream[AxiLite4Ax], r: Stream[AxiLite4R], 
   val recvBytes = ArrayBuffer[Byte]()
   val arDrv = AxiLite4AxSource(ar, clockDomain, queueOccupancyLimit)
   val rMon = AxiLite4RSink(r, clockDomain, queueOccupancyLimit)
+  var readProcThrd: SimThread = null
 
   private def readCmdProc() = {
     while (true) {
@@ -77,7 +79,17 @@ case class AxiLite4ReadOnlyMaster(ar: Stream[AxiLite4Ax], r: Stream[AxiLite4R], 
   def start() = {
     arDrv.start()
     rMon.start()
-    fork(readCmdProc())
+    readProcThrd = fork(readCmdProc())
+  }
+
+  def stop() = {
+    if (readProcThrd != null)
+      readProcThrd.terminate()
+    arDrv.stop()
+    rMon.stop()
+    readCmdQueue.clear()
+    respCmdQueue.clear()
+    recvBytes.clear()
   }
 
   def setFlowPercent(arFlowPercent: Int, rflowPercent: Int) = {

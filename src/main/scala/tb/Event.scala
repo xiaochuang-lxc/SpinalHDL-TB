@@ -7,8 +7,8 @@ case class Event(name: String = "") {
   var fired: Boolean = false
 
   def set(data: Any): Unit = {
-    fired = true
     this.data = data
+    fired = true
   }
 
   def trigger(): Unit = {

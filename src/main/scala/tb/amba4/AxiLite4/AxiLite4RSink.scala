@@ -17,7 +17,7 @@ case class AxiLite4RSink(bus: Stream[AxiLite4R], clockDomain: ClockDomain, queue
     AxiLite4RPkg(bus.data.toBigInt, bus.resp.toInt)
   }
 
-  override def streamPause(): Boolean = nextInt(100) >= (flowPercent - 1)
+  override def streamPause(): Boolean = nextInt(100) > (flowPercent - 1)
 
   def setFlowPercent(flowPercent: Int) = {
     assert(flowPercent > 0 && flowPercent <= 100, s"flowPercent should be [1:100]")

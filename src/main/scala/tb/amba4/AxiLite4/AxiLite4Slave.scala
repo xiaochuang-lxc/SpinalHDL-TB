@@ -18,6 +18,11 @@ case class AxiLite4Slave(axiLite4: AxiLite4, clockDomain: ClockDomain, target: R
     axiLite4ReadOnlySlave.start()
   }
 
+  def stop() = {
+    axiLite4WriteOnlySlave.stop()
+    axiLite4ReadOnlySlave.stop()
+  }
+
   def idle = axiLite4ReadOnlySlave.idel && axiLite4WriteOnlySlave.idle
 
   def setFlowPercent(awFlowPercent: Int, wflowPercent: Int, bflowPercent: Int, arFlowPercent: Int, rflowPercent: Int) = {

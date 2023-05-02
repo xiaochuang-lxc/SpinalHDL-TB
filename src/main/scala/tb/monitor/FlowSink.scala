@@ -2,27 +2,22 @@ package tb.monitor
 
 import spinal.core._
 import spinal.core.sim._
-import spinal.lib._
+import spinal.lib.Flow
 import tb.{Event, Transaction}
 
-abstract class StreamSink[T <: Data](bus: Stream[T], clockDomain: ClockDomain, queueOccupancyLimit: Int = 8, callback: (Transaction) => Unit = null, event: Event = null) extends BusMonitor(bus, clockDomain, callback, event) {
+abstract case class FlowSink[T <: Data](bus: Flow[T], clockDomain: ClockDomain, callback: (Transaction) => Unit = null, event: Event = null) extends BusMonitor(bus, clockDomain, callback, event) {
   val active = Event()
 
-  def streamPause(): Boolean
-
-  def full = recvQ.size == queueOccupancyLimit
-
-  def idle = !active.fired & recvQ.isEmpty
+  def idle(): Boolean = !active.fired & recvQ.isEmpty
 
   def sample(): Transaction
 
-  def getTrasaction[T <: Transaction] = {
+  def getTransaction[T <: Transaction] = {
     waitUntil(!recvQ.isEmpty)
     recvQ.dequeue().asInstanceOf[T]
   }
 
   override def init(): Unit = {
-    bus.ready #= false
     recvQ.clear()
     callbackArray.clear()
     if (callback != null)
@@ -40,13 +35,10 @@ abstract class StreamSink[T <: Data](bus: Stream[T], clockDomain: ClockDomain, q
     while (true) {
       if (bus.valid.toBoolean) {
         active.set()
-        if (bus.ready.toBoolean) {
-          recv(sample())
-        }
+        recv(sample())
       } else {
         active.clear()
       }
-      bus.ready #= !streamPause() && !full
       clockDomain.waitSampling()
     }
   }

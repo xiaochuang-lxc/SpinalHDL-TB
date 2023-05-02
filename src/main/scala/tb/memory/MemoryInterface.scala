@@ -1,7 +1,7 @@
 package tb.memory
 
 import spinal.core.sim._
-import spinal.lib._
+import spinal.core.{Endianness, LITTLE}
 import tb.Utils.{BigInt2ByteArray, ByteArray2BigInt}
 
 abstract class MemoryInterface(val size: BigInt, var base: BigInt = 0, var parent: MemoryInterface = null) {
@@ -20,7 +20,7 @@ abstract class MemoryInterface(val size: BigInt, var base: BigInt = 0, var paren
    */
   def readPrivate(address: BigInt, length: Int, kwargs: Map[String, BigInt] = null): Array[Byte]
 
-  def readDords(address: BigInt, count: Int, endianness: Endianness = LITTLE, kwargs: Map[String, BigInt] = null): Array[BigInt] = {
+  def readDwords(address: BigInt, count: Int, endianness: Endianness = LITTLE, kwargs: Map[String, BigInt] = null): Array[BigInt] = {
     readWords(address, count, 4, endianness, kwargs)
   }
 

@@ -4,6 +4,7 @@ import spinal.core.sim.{fork, simFailure, waitUntil}
 import spinal.core.{ClockDomain, log2Up}
 import spinal.lib.Stream
 import spinal.lib.bus.amba4.axi.{Axi4Ar, Axi4Config, Axi4R}
+import spinal.sim.SimThread
 import tb.Utils.BigInt2ByteArray
 import tb.memory.Region
 import tb.{Event, Transaction}
@@ -67,6 +68,8 @@ case class Axi4ReadOnlyMaster(ar: Stream[Axi4Ar], r: Stream[Axi4R], clockDomain:
   val arSource = Axi4AxSource(ar, clockDomain, maxPkgPending)
   val rSink = Axi4RSink(r, clockDomain, 4096 / config.bytePerWord * maxPkgPending)
 
+  var readProcThrd: SimThread = null
+
   def init() = {
     arSource.init()
     rSink.init()
@@ -76,7 +79,16 @@ case class Axi4ReadOnlyMaster(ar: Stream[Axi4Ar], r: Stream[Axi4R], clockDomain:
   def start() = {
     arSource.start()
     rSink.start()
-    fork(readProcess())
+    readProcThrd = fork(readProcess())
+  }
+
+  def stop(): Unit = {
+    readProcThrd.terminate()
+    arSource.stop()
+    rSink.stop()
+    readCmdQueue.clear()
+    respCmdQueuArray.foreach(_.clear())
+    recvBytesBufferArray.foreach(_.clear())
   }
 
   private def readProcess() = {

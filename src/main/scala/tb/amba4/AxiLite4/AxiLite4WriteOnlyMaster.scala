@@ -4,6 +4,7 @@ import spinal.core._
 import spinal.core.sim._
 import spinal.lib._
 import spinal.lib.bus.amba4.axilite._
+import spinal.sim.SimThread
 import tb.Utils.{BooleanList2BigInt, ByteArray2BigInt}
 import tb.memory.Region
 import tb.{Event, Transaction}
@@ -19,9 +20,9 @@ case class AxiLite4WriteCmd(addr: BigInt, data: Array[Byte], event: Event, kwarg
     val pkgs = Array[(AxiLite4AxPkg, AxiLite4WPkg, AxiLite4WriteRespCmd)]().toBuffer
     val addrAlignOffset = (addr % config.bytePerWord).toInt
     val cycles = (addrAlignOffset + data.length + config.bytePerWord - 1) / config.bytePerWord
-    val lastCyclByte = (data.length + addrAlignOffset) % config.bytePerWord
-    val dataTmp = Array.fill(addrAlignOffset)(0.toByte) ++ data ++ Array.fill(config.bytePerWord - lastCyclByte)(0.toByte)
-    val strbTmp = Array.fill(addrAlignOffset)(false) ++ Array.fill(data.length)(true) ++ Array.fill(config.bytePerWord - lastCyclByte)(false)
+    val unAlignedByteNum = (data.length + addrAlignOffset) & (config.bytePerWord - 1)
+    val dataTmp = Array.fill(addrAlignOffset)(0.toByte) ++ data ++ Array.fill((config.bytePerWord - unAlignedByteNum) & (config.bytePerWord - 1))(0.toByte)
+    val strbTmp = Array.fill(addrAlignOffset)(false) ++ Array.fill(data.length)(true) ++ Array.fill((config.bytePerWord - unAlignedByteNum) & (config.bytePerWord - 1))(false)
     for (index <- 0 until cycles) {
       val dataToSend = ByteArray2BigInt(dataTmp.slice(index * config.bytePerWord, (index + 1) * config.bytePerWord))
       val strb = BooleanList2BigInt(strbTmp.slice(index * config.bytePerWord, (index + 1) * config.bytePerWord))
@@ -45,6 +46,7 @@ case class AxiLite4WriteOnlyMaster(aw: Stream[AxiLite4Ax], w: Stream[AxiLite4W],
   val awDrv = AxiLite4AxSource(aw, clockDomain, queueOccupancyLimit)
   val wDrv = AxiLite4WSource(w, clockDomain, queueOccupancyLimit)
   val bMon = AxiLite4BSink(b, clockDomain, queueOccupancyLimit)
+  var writeProcThrd: SimThread = null
 
   def init() = {
     awDrv.init()
@@ -57,7 +59,17 @@ case class AxiLite4WriteOnlyMaster(aw: Stream[AxiLite4Ax], w: Stream[AxiLite4W],
     awDrv.start()
     wDrv.start()
     bMon.start()
-    fork(writeProcess())
+    writeProcThrd = fork(writeProcess())
+  }
+
+  def stop() = {
+    if (writeProcThrd != null)
+      writeProcThrd.terminate()
+    awDrv.stop()
+    wDrv.stop()
+    bMon.stop()
+    writeCmdQueue.clear()
+    respCmdQueue.clear()
   }
 
   private def writeProcess() = {
