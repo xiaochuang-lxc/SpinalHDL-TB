@@ -10,64 +10,83 @@ import tb.memory.Region
 import tb.{Event, Transaction}
 
 import scala.collection.mutable.Queue
+import scala.math.min
 
 case class Axi4WriteCmd(addr: BigInt, data: Array[Byte], event: Event, config: Axi4Config, kwargs: Map[String, BigInt]) {
-  def generatePkg(): Array[(Axi4AxPkg, Array[Axi4WPkg], Axi4WriteRespCmd)] = {
 
-    val defaultSize = log2Up(config.bytePerWord)
+  val defaultSize = log2Up(config.bytePerWord)
+  val id = if (config.useId) kwargs.getOrElse("id", BigInt(0)) else BigInt(0)
+  val region = if (config.useRegion) kwargs.getOrElse("region", BigInt(0)).toInt else 0
+  val size = if (config.useSize) kwargs.getOrElse("size", BigInt(defaultSize)).toInt else defaultSize
+  val burst = if (config.useBurst) kwargs.getOrElse("burst", BigInt(1)).toInt else 0
+  val lock = if (config.useLock) kwargs.getOrElse("lock", BigInt(0)).toInt else 0
+  val cache = if (config.useCache) kwargs.getOrElse("cache", BigInt(0)).toInt else 0
+  val qos = if (config.useQos) kwargs.getOrElse("qos", BigInt(0)).toInt else 0
+  val prot = if (config.useProt) kwargs.getOrElse("prot", BigInt(2)).toInt else 0
+  val awuser = if (config.useWUser) kwargs.getOrElse("awuser", BigInt(0)) else BigInt(0)
+  val wuser = if (config.useWUser) kwargs.getOrElse("wuser", BigInt(0)) else BigInt(0)
+
+  val transferBytesPerCycle = 1 << size //每拍传输的字节数
+
+
+  /**
+   * 单个指令封装
+   *
+   * @param sendAddr  待发送地址
+   * @param sendData  待发送数据
+   * @param fireEvent 是否触发Axi4WriteRespCmd Event
+   * @return
+   */
+  private def generateCmd(sendAddr: BigInt, sendData: Array[Byte], fireEvent: Boolean): (Axi4AxPkg, Array[Axi4WPkg], Axi4WriteRespCmd) = {
+    val addrAlignOffset = sendAddr.toInt & (transferBytesPerCycle - 1) //首拍地址偏移
+    val cycles = (addrAlignOffset + sendData.length + transferBytesPerCycle - 1) / transferBytesPerCycle //数据传输需要的cycle数
+    val lastCycleByteNum = (addrAlignOffset + sendData.length) & (transferBytesPerCycle - 1) //最后一拍传输的字节数
+    val dataTmp = (Array.fill(addrAlignOffset)(0.toByte) ++ sendData ++ Array.fill(lastCycleByteNum)(0.toByte)) //待发送数据拼接
+    val strbTmp = Array.fill(addrAlignOffset)(false) ++ Array.fill(sendData.length)(true) ++ Array.fill((transferBytesPerCycle - lastCycleByteNum) & (transferBytesPerCycle - 1))(false)
+
+    val axi4WBuffer = Array[Axi4WPkg]().toBuffer
+    val awCmd = Axi4AxPkg(
+      addr = sendAddr,
+      id = id,
+      region = region,
+      len = cycles - 1,
+      size = size,
+      burst = burst,
+      lock = lock,
+      cache = cache,
+      qos = qos,
+      user = awuser,
+      prot = prot
+    )
+    for (index <- 0 until cycles) {
+      val offset = if (index == 0) (sendAddr.toInt - addrAlignOffset) & (config.bytePerWord - 1) else ((sendAddr - addrAlignOffset).toInt + index * transferBytesPerCycle) & (config.bytePerWord - 1)
+      val dataSlice = Array.fill(offset)(0.toByte) ++ dataTmp.slice(index * transferBytesPerCycle, (index + 1) * transferBytesPerCycle) ++ Array.fill(config.bytePerWord - offset - transferBytesPerCycle)(0.toByte)
+      val strbSlice = Array.fill(offset)(false) ++ strbTmp.slice(index * transferBytesPerCycle, (index + 1) * transferBytesPerCycle) ++ Array.fill(config.bytePerWord - offset - transferBytesPerCycle)(false)
+      axi4WBuffer.append(Axi4WPkg(
+        data = ByteArray2BigInt(dataSlice),
+        strb = BooleanList2BigInt(strbSlice),
+        user = wuser,
+        last = index == cycles - 1
+      ))
+    }
+    (awCmd, axi4WBuffer.toArray, Axi4WriteRespCmd(awCmd, event, fireEvent))
+  }
+
+  def generatePkg(): Array[(Axi4AxPkg, Array[Axi4WPkg], Axi4WriteRespCmd)] = {
 
     val pkgBuffer = Array[(Axi4AxPkg, Array[Axi4WPkg], Axi4WriteRespCmd)]().toBuffer
 
-    val id = if (config.useId) kwargs.getOrElse("id", BigInt(0)) else BigInt(0)
-    val region = if (config.useRegion) kwargs.getOrElse("region", BigInt(0)).toInt else 0
-    val size = if (config.useSize) kwargs.getOrElse("size", BigInt(defaultSize)).toInt else 0
-    val burst = if (config.useBurst) kwargs.getOrElse("burst", BigInt(1)).toInt else 0
-    val lock = if (config.useLock) kwargs.getOrElse("lock", BigInt(0)).toInt else 0
-    val cache = if (config.useCache) kwargs.getOrElse("cache", BigInt(0)).toInt else 0
-    val qos = if (config.useQos) kwargs.getOrElse("qos", BigInt(0)).toInt else 0
-    val prot = if (config.useProt) kwargs.getOrElse("prot", BigInt(2)).toInt else 0
-    val awuser = if (config.useWUser) kwargs.getOrElse("awuser", BigInt(0)) else BigInt(0)
-    val wuser = if (config.useWUser) kwargs.getOrElse("wuser", BigInt(0)) else BigInt(0)
-
-    val addrAlignOffset = addr.toInt & (config.bytePerWord - 1)
-    val addr4KAlignOffset = addr.toInt & (4096 - 1)
-    val maxCyclePerCmd = 4096 / config.bytePerWord
-    val cycles = (addrAlignOffset + data.length + config.bytePerWord - 1) / config.bytePerWord
-    val unAlignedByteNum = (data.length + addrAlignOffset) & (config.bytePerWord - 1)
-    val dataTmp = Array.fill(addrAlignOffset)(0.toByte) ++ data ++ Array.fill((config.bytePerWord - unAlignedByteNum) & (config.bytePerWord - 1))(0.toByte)
-    val strbTmp = Array.fill(addrAlignOffset)(false) ++ Array.fill(data.length)(true) ++ Array.fill((config.bytePerWord - unAlignedByteNum) & (config.bytePerWord - 1))(false)
-    val cmdNum = (addr4KAlignOffset / config.bytePerWord + cycles + maxCyclePerCmd - 1) / maxCyclePerCmd
-    val firstCmdDataCycleMax = (4096 - addr4KAlignOffset + config.bytePerWord - 1) / config.bytePerWord
-
-    val wdataBuffer = Array[BigInt]().toBuffer
-    val strbBuffer = Array[BigInt]().toBuffer
-    for (index <- 0 until cycles) {
-      wdataBuffer += ByteArray2BigInt(dataTmp.slice(index * config.bytePerWord, (index + 1) * config.bytePerWord))
-      strbBuffer += BooleanList2BigInt(strbTmp.slice(index * config.bytePerWord, (index + 1) * config.bytePerWord))
-    }
-
-    for (index <- 0 until cmdNum) {
-      val wPkgBuffer = Array[Axi4WPkg]().toBuffer
-      val dataCycles = scala.math.min(wdataBuffer.length, if (index == 0) firstCmdDataCycleMax else maxCyclePerCmd)
-      val awCmd = Axi4AxPkg(
-        addr = if (index == 0) addr else (addr - addr4KAlignOffset) + 4096 * index,
-        id = id,
-        region = region,
-        len = dataCycles - 1,
-        size = size,
-        burst = burst,
-        lock = lock,
-        cache = cache,
-        qos = qos,
-        user = awuser,
-        prot = prot
-      )
-      val wCmds = wdataBuffer.slice(0, dataCycles).zipWithIndex.map(info => {
-        Axi4WPkg(info._1, strbBuffer(info._2), wuser, info._2 == (dataCycles - 1))
-      })
-      pkgBuffer += ((awCmd, wCmds.toArray, Axi4WriteRespCmd(awCmd, event, index == (cmdNum - 1))))
-      wdataBuffer.remove(0, dataCycles)
-      strbBuffer.remove(0, dataCycles)
+    var lengthLeft = data.length
+    var sendAddr = addr
+    val dataToSend = data.toBuffer
+    val allowTransferMax = transferBytesPerCycle * 256
+    while (lengthLeft > 0) {
+      val allowTransferBytes = min(min(4096 - (sendAddr.toInt & 4095), allowTransferMax), lengthLeft) //允许传输的字节数
+      val sendData = dataToSend.slice(0, allowTransferBytes) //待发送的数据
+      dataToSend.remove(0, allowTransferBytes)
+      pkgBuffer += generateCmd(sendAddr, sendData.toArray, allowTransferBytes == lengthLeft)
+      sendAddr += allowTransferBytes
+      lengthLeft -= allowTransferBytes
     }
     pkgBuffer.toArray
   }

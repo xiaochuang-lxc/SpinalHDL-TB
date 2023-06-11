@@ -54,6 +54,7 @@ case class Axi4Test() extends FunSuite {
       axi4MasterDrv.start()
       for (index <- 1 to 4096) {
         val writeData = generateData(index)
+        log.info(s"send a package :address=0\tlength:${index}")
         axi4MasterDrv.write(0, writeData, Map("awuser" -> BigInt(0x0f0f0f0f), "id" -> BigInt(index % 8)))
         val readData = axi4MasterDrv.read(0x0, index, Map("aruser" -> BigInt(0x0f0f0f0f), "id" -> BigInt(index % 8)))
         val readDataBack = memRegion.read(0x0, index)

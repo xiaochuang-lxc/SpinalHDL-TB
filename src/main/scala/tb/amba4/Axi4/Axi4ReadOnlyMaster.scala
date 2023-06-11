@@ -10,38 +10,37 @@ import tb.memory.Region
 import tb.{Event, Transaction}
 
 import scala.collection.mutable.{ArrayBuffer, Queue}
+import scala.math.min
 
 case class Axi4ReadCmd(addr: BigInt, length: Int, event: Event, config: Axi4Config, kwargs: Map[String, BigInt]) {
 
-  def generatePkg(): Array[(Axi4AxPkg, Axi4ReadRespCmd)] = {
-    val defaultSize = log2Up(config.bytePerWord)
+  val defaultSize = log2Up(config.bytePerWord)
+  val id = if (config.useId) kwargs.getOrElse("id", BigInt(0)) else BigInt(0)
+  val region = if (config.useRegion) kwargs.getOrElse("region", BigInt(0)).toInt else 0
+  val size = if (config.useSize) kwargs.getOrElse("size", BigInt(defaultSize)).toInt else defaultSize
+  val burst = if (config.useBurst) kwargs.getOrElse("burst", BigInt(1)).toInt else 0
+  val lock = if (config.useLock) kwargs.getOrElse("lock", BigInt(0)).toInt else 0
+  val cache = if (config.useCache) kwargs.getOrElse("cache", BigInt(0)).toInt else 0
+  val qos = if (config.useQos) kwargs.getOrElse("qos", BigInt(0)).toInt else 0
+  val prot = if (config.useProt) kwargs.getOrElse("prot", BigInt(2)).toInt else 0
+  val aruser = if (config.useWUser) kwargs.getOrElse("awuser", BigInt(0)) else BigInt(0)
+  val transferBytesPerCycle = 1 << size //每拍传输的字节数
 
+  def generatePkg(): Array[(Axi4AxPkg, Axi4ReadRespCmd)] = {
     val pkgBuffer = Array[(Axi4AxPkg, Axi4ReadRespCmd)]().toBuffer
 
-    val id = if (config.useId) kwargs.getOrElse("id", BigInt(0)) else BigInt(0)
-    val region = if (config.useRegion) kwargs.getOrElse("region", BigInt(0)).toInt else 0
-    val size = if (config.useSize) kwargs.getOrElse("size", BigInt(defaultSize)).toInt else 0
-    val burst = if (config.useBurst) kwargs.getOrElse("burst", BigInt(1)).toInt else 0
-    val lock = if (config.useLock) kwargs.getOrElse("lock", BigInt(0)).toInt else 0
-    val cache = if (config.useCache) kwargs.getOrElse("cache", BigInt(0)).toInt else 0
-    val qos = if (config.useQos) kwargs.getOrElse("qos", BigInt(0)).toInt else 0
-    val prot = if (config.useProt) kwargs.getOrElse("prot", BigInt(2)).toInt else 0
-    val aruser = if (config.useWUser) kwargs.getOrElse("awuser", BigInt(0)) else BigInt(0)
-
-    val addrAlignOffset = addr.toInt & (config.bytePerWord - 1)
-    val addr4KAlignOffset = addr.toInt & (4096 - 1)
-    val maxCyclePerCmd = 4096 / config.bytePerWord
-    var cycles = (addrAlignOffset + length + config.bytePerWord - 1) / config.bytePerWord
-    val cmdNum = (addr4KAlignOffset / config.bytePerWord + cycles + maxCyclePerCmd - 1) / maxCyclePerCmd
-    val firstCmdDataCycleMax = (4096 - addr4KAlignOffset + config.bytePerWord - 1) / config.bytePerWord
-
-    for (index <- 0 until cmdNum) {
-      val dataCycles = scala.math.min(cycles, if (index == 0) firstCmdDataCycleMax else maxCyclePerCmd)
+    var lengthLeft = length
+    var sendAddr = addr
+    val allowTransferMax = transferBytesPerCycle * 256
+    while (lengthLeft > 0) {
+      val allowTransferBytes = min(min(4096 - (sendAddr.toInt & 4095), allowTransferMax), lengthLeft) //允许传输的字节数
+      val addrAlignOffset = sendAddr.toInt & (transferBytesPerCycle - 1) //首拍地址偏移
+      val cycles = (addrAlignOffset + allowTransferBytes + transferBytesPerCycle - 1) / transferBytesPerCycle //数据传输需要的cycle数
       val arCmd = Axi4AxPkg(
-        addr = if (index == 0) addr else (addr - addr4KAlignOffset) + 4096 * index,
+        addr = sendAddr,
         id = id,
         region = region,
-        len = dataCycles - 1,
+        len = cycles - 1,
         size = size,
         burst = burst,
         lock = lock,
@@ -50,8 +49,9 @@ case class Axi4ReadCmd(addr: BigInt, length: Int, event: Event, config: Axi4Conf
         user = aruser,
         prot = prot
       )
-      pkgBuffer += ((arCmd, Axi4ReadRespCmd(arCmd, length, event, index == (cmdNum - 1), addrAlignOffset)))
-      cycles = cycles - dataCycles
+      pkgBuffer += ((arCmd, Axi4ReadRespCmd(arCmd, length, event, lengthLeft == allowTransferBytes, addr.toInt & (transferBytesPerCycle - 1))))
+      sendAddr += allowTransferBytes
+      lengthLeft -= allowTransferBytes
     }
     pkgBuffer.toArray
   }
@@ -64,6 +64,7 @@ case class Axi4ReadOnlyMaster(ar: Stream[Axi4Ar], r: Stream[Axi4R], clockDomain:
   val readCmdQueue = Queue[Axi4ReadCmd]()
   val respCmdQueuArray = Array.fill(if (config.idWidth > 0) 1 << config.idWidth else 1)(Queue[Axi4ReadRespCmd]())
   val recvBytesBufferArray = Array.fill(if (config.idWidth > 0) 1 << config.idWidth else 1)(ArrayBuffer[Byte]())
+  val recvBigIntBufferArray = Array.fill(if (config.idWidth > 0) 1 << config.idWidth else 1)(ArrayBuffer[BigInt]())
 
   val arSource = Axi4AxSource(ar, clockDomain, maxPkgPending)
   val rSink = Axi4RSink(r, clockDomain, 4096 / config.bytePerWord * maxPkgPending)
@@ -104,13 +105,23 @@ case class Axi4ReadOnlyMaster(ar: Stream[Axi4Ar], r: Stream[Axi4R], clockDomain:
     }
   }
 
+  private def filterReadData(arCmd: Axi4AxPkg, readData: ArrayBuffer[BigInt]): Array[Byte] = {
+    val transferPerBytes = 1 << arCmd.size //每拍传输的字节数
+    val alignTransferOffset = arCmd.addr.toInt & (transferPerBytes - 1)
+    val startAddressAligned = (arCmd.addr.toInt - alignTransferOffset) & (config.bytePerWord - 1)
+    val dataSliceSelected = for (index <- 0 until readData.length) yield (startAddressAligned + index * transferPerBytes) & (config.bytePerWord - 1)
+    val readDataByteArray = readData.map(BigInt2ByteArray(_, config.bytePerWord))
+    (readDataByteArray, dataSliceSelected).zipped.map((rdata, offset) => rdata.slice(offset, offset + transferPerBytes)).reduce(_ ++ _)
+  }
+
   private def respProcess(resp: Transaction) = {
     val recvPkg = resp.asInstanceOf[Axi4RPkg]
     assert(!respCmdQueuArray(recvPkg.id.toInt).isEmpty, rSink.log.error(s"get a id=${recvPkg.id} resp from bus but no write cmd"))
-
-    recvBytesBufferArray(recvPkg.id.toInt) ++= BigInt2ByteArray(recvPkg.data, config.bytePerWord)
+    recvBigIntBufferArray(recvPkg.id.toInt) += recvPkg.data
     if (recvPkg.last) {
       val respCmd = respCmdQueuArray(recvPkg.id.toInt).dequeue()
+      recvBytesBufferArray(recvPkg.id.toInt) ++= filterReadData(arCmd = respCmd.arCmd, recvBigIntBufferArray(recvPkg.id.toInt))
+      recvBigIntBufferArray(recvPkg.id.toInt).clear()
       if (!recvPkg.isOkay) {
         rSink.log.warning(s"${respCmd.toString} get a ${recvPkg.showResp()} response")
       }
