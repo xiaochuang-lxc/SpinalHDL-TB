@@ -41,7 +41,7 @@ case class Axi4WriteCmd(addr: BigInt, data: Array[Byte], event: Event, config: A
     val addrAlignOffset = sendAddr.toInt & (transferBytesPerCycle - 1) //首拍地址偏移
     val cycles = (addrAlignOffset + sendData.length + transferBytesPerCycle - 1) / transferBytesPerCycle //数据传输需要的cycle数
     val lastCycleByteNum = (addrAlignOffset + sendData.length) & (transferBytesPerCycle - 1) //最后一拍传输的字节数
-    val dataTmp = (Array.fill(addrAlignOffset)(0.toByte) ++ sendData ++ Array.fill(lastCycleByteNum)(0.toByte)) //待发送数据拼接
+    val dataTmp = (Array.fill(addrAlignOffset)(0.toByte) ++ sendData ++ Array.fill((transferBytesPerCycle-lastCycleByteNum)&(transferBytesPerCycle-1))(0.toByte)) //待发送数据拼接
     val strbTmp = Array.fill(addrAlignOffset)(false) ++ Array.fill(sendData.length)(true) ++ Array.fill((transferBytesPerCycle - lastCycleByteNum) & (transferBytesPerCycle - 1))(false)
 
     val axi4WBuffer = Array[Axi4WPkg]().toBuffer
@@ -79,8 +79,8 @@ case class Axi4WriteCmd(addr: BigInt, data: Array[Byte], event: Event, config: A
     var lengthLeft = data.length
     var sendAddr = addr
     val dataToSend = data.toBuffer
-    val allowTransferMax = transferBytesPerCycle * 256
     while (lengthLeft > 0) {
+      val allowTransferMax = transferBytesPerCycle * 256-(sendAddr.toInt&(transferBytesPerCycle-1))
       val allowTransferBytes = min(min(4096 - (sendAddr.toInt & 4095), allowTransferMax), lengthLeft) //允许传输的字节数
       val sendData = dataToSend.slice(0, allowTransferBytes) //待发送的数据
       dataToSend.remove(0, allowTransferBytes)

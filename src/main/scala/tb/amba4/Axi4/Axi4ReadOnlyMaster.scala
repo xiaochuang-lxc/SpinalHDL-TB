@@ -23,7 +23,7 @@ case class Axi4ReadCmd(addr: BigInt, length: Int, event: Event, config: Axi4Conf
   val cache = if (config.useCache) kwargs.getOrElse("cache", BigInt(0)).toInt else 0
   val qos = if (config.useQos) kwargs.getOrElse("qos", BigInt(0)).toInt else 0
   val prot = if (config.useProt) kwargs.getOrElse("prot", BigInt(2)).toInt else 0
-  val aruser = if (config.useWUser) kwargs.getOrElse("awuser", BigInt(0)) else BigInt(0)
+  val aruser = if (config.useWUser) kwargs.getOrElse("aruser", BigInt(0)) else BigInt(0)
   val transferBytesPerCycle = 1 << size //每拍传输的字节数
 
   def generatePkg(): Array[(Axi4AxPkg, Axi4ReadRespCmd)] = {
@@ -31,8 +31,8 @@ case class Axi4ReadCmd(addr: BigInt, length: Int, event: Event, config: Axi4Conf
 
     var lengthLeft = length
     var sendAddr = addr
-    val allowTransferMax = transferBytesPerCycle * 256
     while (lengthLeft > 0) {
+      val allowTransferMax = transferBytesPerCycle * 256-(sendAddr.toInt&(transferBytesPerCycle-1))
       val allowTransferBytes = min(min(4096 - (sendAddr.toInt & 4095), allowTransferMax), lengthLeft) //允许传输的字节数
       val addrAlignOffset = sendAddr.toInt & (transferBytesPerCycle - 1) //首拍地址偏移
       val cycles = (addrAlignOffset + allowTransferBytes + transferBytesPerCycle - 1) / transferBytesPerCycle //数据传输需要的cycle数
@@ -90,6 +90,7 @@ case class Axi4ReadOnlyMaster(ar: Stream[Axi4Ar], r: Stream[Axi4R], clockDomain:
     readCmdQueue.clear()
     respCmdQueuArray.foreach(_.clear())
     recvBytesBufferArray.foreach(_.clear())
+    recvBigIntBufferArray.foreach(_.clear())
   }
 
   private def readProcess() = {

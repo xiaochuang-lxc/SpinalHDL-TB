@@ -50,18 +50,18 @@ case class Axi4ReadOnlySlave(ar: Stream[Axi4Ar], r: Stream[Axi4R], clockDomain: 
   private def readProcess() = {
     while (true) {
       val readCmd = arSink.getItem[Axi4AxPkg]
+      readCmd.validCheck()
       arSink.log.info(s"get a read cmd ${readCmd.toString}")
-      val addrAlignOffset = readCmd.addr.toInt & (config.bytePerWord - 1)
-      val addr4KAlignOffset = addrAlignOffset & (4096 - 1)
-      val readLength = (readCmd.len + 1) * config.bytePerWord - addrAlignOffset
-      if (readLength > (4096 - addr4KAlignOffset)) {
-        arSink.log.error(s"cross 4K error: ${readCmd.toString}")
-      }
+      val addrAlignOffset = readCmd.addr.toInt & (readCmd.transferBytesPerCycle - 1)
+      val readLength = (readCmd.len + 1) * readCmd.transferBytesPerCycle - addrAlignOffset
       val readDataTmp = Array.fill(addrAlignOffset)(0.toByte) ++ target.read(readCmd.addr, readLength, readCmd.generatekwargsMap())
+      val addrAligned=readCmd.addr.toInt-addrAlignOffset
       for (index <- 0 to readCmd.len) {
+        val offset=(addrAligned+index*readCmd.transferBytesPerCycle)&(config.bytePerWord-1)
+        val sendDataSlice=Array.fill(offset)(0.toByte)++readDataTmp.slice(index*readCmd.transferBytesPerCycle,(index+1)*readCmd.transferBytesPerCycle)
         rSource.send(
           Axi4RPkg(
-            data = ByteArray2BigInt(readDataTmp.slice(index * config.bytePerWord, (index + 1) * config.bytePerWord)),
+            data = ByteArray2BigInt(sendDataSlice),
             id = readCmd.id,
             last = index == readCmd.len,
             user = readCmd.user,

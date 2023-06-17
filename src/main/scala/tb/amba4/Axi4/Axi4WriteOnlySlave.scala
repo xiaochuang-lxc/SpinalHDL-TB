@@ -61,30 +61,29 @@ case class Axi4WriteOnlySlave(aw: Stream[Axi4Aw], w: Stream[Axi4W], b: Stream[Ax
 
 
   private def writeProcess = {
+    var wChBeatCnt=0
     while (true) {
       val axi4WPkg = wSink.getItem[Axi4WPkg] // transaction.asInstanceOf[Axi4WPkg]
       writeDataBuffer ++= BigInt2ByteArray(axi4WPkg.data, config.bytePerWord)
       writeStrbBuffer ++= BigIntToListBoolean(axi4WPkg.strb, config.bytePerWord bits)
+      wChBeatCnt+=1
       if (axi4WPkg.last) {
         val writeCmd = awSink.getItem[Axi4AxPkg]
+        writeCmd.validCheck()
         awSink.log.info(s"get a write cmd:${writeCmd.toString}")
         val writeData = (writeDataBuffer, writeStrbBuffer).zipped.toArray.filter(_._2).map(_._1)
-        val addrAlignOffset = writeCmd.addr.toInt & (config.bytePerWord - 1)
-        val addr4KAlignOffset = addrAlignOffset & (4096 - 1)
-        val cycles = (addrAlignOffset + writeData.length + config.bytePerWord - 1) / config.bytePerWord
-        if (cycles != (writeCmd.len + 1)) {
+        if(wChBeatCnt!=(writeCmd.len+1)){
           wSink.log.error(s"len mismatch:write data length:${writeData.length}, the axi4Aw Cmd:${writeCmd.toString}")
         }
-        if (writeData.length > (4096 - addr4KAlignOffset)) {
-          if (cycles != (writeCmd.len - 1)) {
-            wSink.log.error(s"cross 4K error:write data length:${writeData.length}, the axi4Aw Cmd:${writeCmd.toString}")
-          }
+        if(writeData.length>(4096-(writeCmd.addr.toInt&4095))){
+          wSink.log.error(s"corss 4K error:write data length${writeData.length}, the axi4Aw Cmd:${writeCmd.toString}")
         }
         target.write(writeCmd.addr, writeData, axi4WPkg.generatekwargsMap(writeCmd))
         wSink.log.info(s"write addr:${writeCmd.addr},length:${writeData.length}")
         bSource.send(Axi4BPkg(writeCmd.id, 0, writeCmd.user))
         writeDataBuffer.clear()
         writeStrbBuffer.clear()
+        wChBeatCnt=0
       }
     }
   }

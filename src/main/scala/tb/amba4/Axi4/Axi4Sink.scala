@@ -1,7 +1,7 @@
 package tb.amba4.Axi4
 
 import spinal.core.sim._
-import spinal.core.{ClockDomain, Data}
+import spinal.core.{ClockDomain, Data,log2Up}
 import spinal.lib.Stream
 import spinal.lib.bus.amba4.axi.{Axi4Ax, Axi4B, Axi4R, Axi4W}
 import tb.Transaction
@@ -21,6 +21,7 @@ abstract class Axi4Sink[T <: Data](bus: Stream[T], clockDomain: ClockDomain, que
 
 case class Axi4AxSink[T <: Axi4Ax](ax: Stream[T], clockDomain: ClockDomain, queueOccupancyLimit: Int = 8) extends Axi4Sink(ax, clockDomain, queueOccupancyLimit) {
   val config = ax.config
+  val maxSize=log2Up(config.bytePerWord)
 
   override def streamPause(): Boolean = nextInt(100) > (flowPercent - 1)
 
@@ -30,7 +31,7 @@ case class Axi4AxSink[T <: Axi4Ax](ax: Stream[T], clockDomain: ClockDomain, queu
       if (config.useId) ax.id.toInt else 0,
       if (config.useRegion) ax.region.toInt else 0,
       if (config.useLen) ax.len.toInt else 0,
-      if (config.useSize) ax.size.toInt else 0,
+      if (config.useSize) ax.size.toInt else maxSize,
       if (config.useBurst) ax.burst.toInt else 0,
       if (config.useLock) ax.lock.toInt else 0,
       if (config.useCache) ax.cache.toInt else 0,

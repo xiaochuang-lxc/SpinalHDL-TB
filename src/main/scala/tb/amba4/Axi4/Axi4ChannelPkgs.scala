@@ -15,6 +15,7 @@ case class Axi4AxPkg(
                       user: BigInt,
                       prot: Int
                     ) extends Transaction {
+  val transferBytesPerCycle=1<<size
   def generatekwargsMap(): Map[String, BigInt] = {
     Map(
       "id" -> id,
@@ -28,6 +29,15 @@ case class Axi4AxPkg(
       "prot" -> prot,
       "aruser" -> user
     )
+  }
+
+  def validCheck()={
+    //cross 4k check
+    val maxBytesAllowed=4096-(addr.toInt&4095)
+    val addrOffset=addr.toInt&(transferBytesPerCycle-1)
+    val maxLen=(maxBytesAllowed+addrOffset)/transferBytesPerCycle
+    val lenAllowed=scala.math.min(maxLen,256)
+    assert(len<lenAllowed,s"this cmd may cross 4k:${this.toString}")
   }
 
   override def toString: String = f"addr:0x$addr%x\tid:$id\tregion:$region\tlen:$len\tsize:$size\tburst:$burst\tlock:$lock\tcache:$cache\tqos:$qos\tprot:$prot\tuser:$user%x"
