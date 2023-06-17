@@ -76,7 +76,7 @@ case class Axi4WriteOnlySlave(aw: Stream[Axi4Aw], w: Stream[Axi4W], b: Stream[Ax
           wSink.log.error(s"len mismatch:write data length:${writeData.length}, the axi4Aw Cmd:${writeCmd.toString}")
         }
         if(writeData.length>(4096-(writeCmd.addr.toInt&4095))){
-          wSink.log.error(s"corss 4K error:write data length${writeData.length}, the axi4Aw Cmd:${writeCmd.toString}")
+          wSink.log.error(s"cross 4K error:write data length${writeData.length}, the axi4Aw Cmd:${writeCmd.toString}")
         }
         target.write(writeCmd.addr, writeData, axi4WPkg.generatekwargsMap(writeCmd))
         wSink.log.info(s"write addr:${writeCmd.addr},length:${writeData.length}")
